@@ -3,5 +3,4 @@ opencv-python-headless
 numpy==1.26.4
 pandas
 deepface
-tensorflow-cpu
-werkzeug
+tf-keras
