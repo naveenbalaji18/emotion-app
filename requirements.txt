@@ -1,10 +1,7 @@
 streamlit
-numpy
-pandas
-pillow
 opencv-python-headless
+numpy==1.26.4
+pandas
 deepface
 tensorflow-cpu
-tf_keras
-retina-face
-gdown
+werkzeug
