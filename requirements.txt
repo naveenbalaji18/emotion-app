@@ -3,5 +3,5 @@ deepface
 tf-keras
 opencv-python-headless
 pillow
-streamlit-back-camera-input
-werkzeug
+streamlit-webrtc
+av
