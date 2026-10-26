@@ -116,106 +116,24 @@ def load(file):
     return cv2.cvtColor(np.array(img), cv2.COLOR_RGB2BGR)
 
 
-CAM_BACKEND = cv2.CAP_DSHOW if sys.platform.startswith("win") else cv2.CAP_ANY
-
-
-def grab_frame(index):
-    """Take one picture from camera number `index` (None if it cannot be used)."""
-    cap = None
-    try:
-        cap = cv2.VideoCapture(index, CAM_BACKEND)
-        if not cap.isOpened():
-            return None
-        frame = None
-        for _ in range(10):          # skip a few frames so brightness settles
-            ok, f = cap.read()
-            if ok:
-                frame = f
-        return frame
-    except cv2.error:
-        return None
-    finally:
-        if cap is not None:
-            cap.release()
-
-
-def detect_cameras(max_index=5):
-    """Return the list of camera numbers that open on this computer."""
-    found = []
-    for i in range(max_index):
-        cap = None
-        try:
-            cap = cv2.VideoCapture(i, CAM_BACKEND)
-            if cap.isOpened():
-                found.append(i)
-        except cv2.error:
-            pass
-        finally:
-            if cap is not None:
-                cap.release()
-    return found or [0]
-
-
 st.title("🙂 Facial Emotion Recognition Using Image Processing")
 st.caption("Mini Project – detects faces and predicts one of 7 emotions: "
            + ", ".join(e.capitalize() for e in EMOTIONS))
 
 M_UPLOAD = "Upload an image"
-M_BROWSER = "Take a photo (browser camera)"
-M_PC = "Take a photo (choose PC camera)"
-mode = st.sidebar.radio("Choose input", [M_UPLOAD, M_BROWSER, M_PC])
-st.sidebar.info("For continuous real-time webcam tracking, run `live_webcam.py` "
-                "(see README).\n\n**On a phone:** choose 'Upload an image' and tap "
-                "'Take photo' / 'Camera' in the file picker.")
-
-
-def take_photo():
-    """Button callback: use the latest viewfinder frame (the camera is already open),
-    or open the camera once if the viewfinder is off."""
-    idx = st.session_state.get("cam_sel", 0)
-    frame = None
-    last = st.session_state.get("last_frame")
-    if st.session_state.get("live") and last is not None and last[0] == idx:
-        frame = last[1]
-    if frame is None:
-        frame = grab_frame(idx)
-    if frame is None:
-        st.session_state["cam_err"] = True
-    else:
-        st.session_state["cam_err"] = False
-        st.session_state["shot"] = frame
-        st.session_state["live"] = False      # stop the viewfinder to show the result
-
+M_BROWSER = "Take a photo (Webcam)"
+mode = st.sidebar.radio("Choose input", [M_UPLOAD, M_BROWSER])
+st.sidebar.info("Running live in the Cloud. Local PC camera options are disabled to ensure execution stability.")
 
 bgr = None
-view = st.empty()                      # the live viewfinder is drawn here
 if mode == M_UPLOAD:
     file = st.file_uploader("Upload an image", type=["jpg", "jpeg", "png", "webp", "bmp", "tiff", "tif"])
     if file is not None:
         bgr = load(file)
 elif mode == M_BROWSER:
-    file = st.camera_input("Look at the camera and click 'Take photo'")
+    file = st.camera_input("Look at your camera and take a snapshot")
     if file is not None:
         bgr = load(file)
-else:
-    cams = st.session_state.get("cams", [0, 1, 2, 3])
-    c1, c2, c3 = st.columns([2, 1, 1])
-    cam = c1.selectbox("Select camera", cams, key="cam_sel", format_func=lambda i: f"Camera {i}")
-    c2.write("")
-    if c2.button("Detect cameras"):
-        with st.spinner("Looking for cameras..."):
-            st.session_state["cams"] = detect_cameras()
-        st.rerun()
-    c3.write("")
-    c3.button("📷 Take photo", type="primary", on_click=take_photo)
-    st.toggle("Show live viewfinder", value=True, key="live")
-    if st.session_state.get("cam_err"):
-        st.error(f"Camera {cam} could not be opened. Choose another camera number, "
-                 "or close other apps/tabs that are using the camera.")
-    st.caption("Camera 0 is usually the laptop webcam; an external camera is usually 1 or 2. "
-               "This mode uses the cameras of the computer running the app. "
-               "On a phone, use 'Upload an image' instead.")
-    bgr = st.session_state.get("shot")
 
 if bgr is not None:
     with st.spinner("Detecting faces and predicting emotions..."):
@@ -238,27 +156,3 @@ elif mode == M_UPLOAD:
     st.info("Upload an image to begin.")
 elif mode == M_BROWSER:
     st.info("Take a photo to begin.")
-else:
-    st.info("Choose a camera and click 'Take photo' to begin.")
-
-# ---- live viewfinder for the PC-camera mode (runs last, until you click something) ----
-if mode == M_PC and st.session_state.get("live"):
-    idx = st.session_state.get("cam_sel", 0)
-    cap = None
-    try:
-        cap = cv2.VideoCapture(idx, CAM_BACKEND)
-        if not cap.isOpened():
-            view.error("This camera could not be opened. Choose another camera number.")
-        else:
-            while True:
-                ok, f = cap.read()
-                if not ok:
-                    break
-                st.session_state["last_frame"] = (idx, f)
-                view.image(cv2.cvtColor(f, cv2.COLOR_BGR2RGB), caption="Live viewfinder", width=640)
-                time.sleep(0.03)
-    except cv2.error:
-        view.error("The camera stopped responding. Choose another camera number or retry.")
-    finally:
-        if cap is not None:
-            cap.release()
