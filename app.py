@@ -128,15 +128,18 @@ st.sidebar.info("Running live in the Cloud. Local hardware PC options are hidden
 
 bgr = None
 
-# This handles the main logic branch cleanly with proper block indenting
 if mode == M_UPLOAD:
     file = st.file_uploader("Upload an image", type=["jpg", "jpeg", "png", "webp", "bmp", "tiff", "tif"])
     if file is not None:
         bgr = load(file)
 
 elif mode == M_BROWSER:
-    st.write("📸 **Tap directly on the viewfinder stream below to take your high-res snapshot!**")
-    file = back_camera_input(label="Webcam Stream Viewfinder")
+    st.write("📸 **Webcam Stream Viewfinder**")
+    st.write("Tap directly on the live video stream below to take your high-res snapshot!")
+    
+    # Fixed: Removed the unsupported 'label' keyword argument
+    file = back_camera_input()
+    
     if file is not None:
         bgr = load(file)
 
