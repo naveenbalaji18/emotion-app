@@ -8,3 +8,4 @@ opencv-python==5.0.0.93
 pillow
 flask
 werkzeug
+streamlit-webrtc
