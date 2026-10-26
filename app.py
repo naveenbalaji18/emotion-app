@@ -8,12 +8,13 @@ Pipeline:  Input image -> Face detection (OpenCV) -> Face cropping/preprocessing
 import sys
 import time
 
+import av
 import cv2
 import numpy as np
 import streamlit as st
 from deepface import DeepFace
 from PIL import Image
-from streamlit_back_camera_input import back_camera_input
+from streamlit_webrtc import webrtc_streamer, WebRtcMode, RTCConfiguration
 
 st.set_page_config(page_title="Facial Emotion Recognition", page_icon="🙂", layout="wide")
 
@@ -117,14 +118,27 @@ def load(file):
     return cv2.cvtColor(np.array(img), cv2.COLOR_RGB2BGR)
 
 
+# Callback process mapping directly into WebRTC video engine streams
+def video_frame_callback(frame):
+    img = frame.to_ndarray(format="bgr24")
+    try:
+        # Runs analysis frame by frame live
+        results = analyse(img)
+        if results:
+            img = draw(img, results)
+    except Exception:
+        pass
+    return av.VideoFrame.from_ndarray(img, format="bgr24")
+
+
 st.title("🙂 Facial Emotion Recognition Using Image Processing")
 st.caption("Mini Project – detects faces and predicts one of 7 emotions: "
            + ", ".join(e.capitalize() for e in EMOTIONS))
 
 M_UPLOAD = "Upload an image"
-M_BROWSER = "Take a photo (Webcam)"
+M_BROWSER = "Interactive Live WebRTC Viewfinder"
 mode = st.sidebar.radio("Choose input", [M_UPLOAD, M_BROWSER])
-st.sidebar.info("Running live in the Cloud. Local hardware PC options are hidden for cross-device web stability.")
+st.sidebar.info("Running live in the Cloud. Use the WebRTC options to open any specific front or back lens dynamically.")
 
 bgr = None
 
@@ -132,35 +146,35 @@ if mode == M_UPLOAD:
     file = st.file_uploader("Upload an image", type=["jpg", "jpeg", "png", "webp", "bmp", "tiff", "tif"])
     if file is not None:
         bgr = load(file)
+        
+    if bgr is not None:
+        with st.spinner("Detecting faces and predicting emotions..."):
+            results = analyse(bgr)
 
+        if not results:
+            st.warning("No face detected. Try a clearer, front-facing photo with good light.")
+            st.image(cv2.cvtColor(bgr, cv2.COLOR_BGR2RGB), caption="Input image")
+        else:
+            left, right = st.columns([3, 2])
+            with left:
+                st.image(cv2.cvtColor(draw(bgr, results), cv2.COLOR_BGR2RGB),
+                         caption=f"{len(results)} face(s) detected")
+            with right:
+                st.subheader("Detected emotions")
+                for i, r in enumerate(results, 1):
+                    label = r["dominant_emotion"]
+                    st.markdown(f"### Face {i}: {label.capitalize()} – {r['emotion'][label]:.0f}%")
+                    
 elif mode == M_BROWSER:
-    st.write("📸 **Webcam Stream Viewfinder**")
-    st.write("Tap directly on the live video stream below to take your high-res snapshot!")
+    st.write("🔄 **Use the video device selector component beneath the camera frame window to alternate freely between lenses!**")
     
-    # Fixed: Removed the unsupported 'label' keyword argument
-    file = back_camera_input()
-    
-    if file is not None:
-        bgr = load(file)
-
-if bgr is not None:
-    with st.spinner("Detecting faces and predicting emotions..."):
-        results = analyse(bgr)
-
-    if not results:
-        st.warning("No face detected. Try a clearer, front-facing photo with good light.")
-        st.image(cv2.cvtColor(bgr, cv2.COLOR_BGR2RGB), caption="Input image")
-    else:
-        left, right = st.columns([3, 2])
-        with left:
-            st.image(cv2.cvtColor(draw(bgr, results), cv2.COLOR_BGR2RGB),
-                     caption=f"{len(results)} face(s) detected")
-        with right:
-            st.subheader("Detected emotions")
-            for i, r in enumerate(results, 1):
-                label = r["dominant_emotion"]
-                st.markdown(f"### Face {i}: {label.capitalize()} – {r['emotion'][label]:.0f}%")
-elif mode == M_UPLOAD:
-    st.info("Upload an image to begin.")
-elif mode == M_BROWSER:
-    st.info("Take a photo to begin.")
+    webrtc_streamer(
+        key="emotion-webrtc-streamer",
+        mode=WebRtcMode.SENDRECV,
+        rtc_configuration=RTCConfiguration(
+            {"iceServers": [{"urls": ["stun:://google.com", "stun:://google.com"]}]}
+        ),
+        video_frame_callback=video_frame_callback,
+        media_stream_constraints={"video": True, "audio": False},
+        async_processing=True,
+    )
