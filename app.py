@@ -5,6 +5,7 @@ Web interface (Streamlit) - image upload or camera snapshot.
 Pipeline:  Input image -> Face detection (OpenCV) -> Face cropping/preprocessing
            -> CNN emotion model (pre-trained, via DeepFace) -> Label drawn on image
 """
+import os
 import sys
 import time
 
@@ -163,7 +164,14 @@ st.caption("Mini Project – detects faces and predicts one of 7 emotions: "
 M_UPLOAD = "Upload an image"
 M_BROWSER = "Take a photo (browser camera)"
 M_PC = "Take a photo (choose PC camera)"
-mode = st.sidebar.radio("Choose input", [M_UPLOAD, M_BROWSER, M_PC])
+# On Streamlit Community Cloud the app runs on a remote server that has no camera,
+# so the "PC camera" mode can only be offered when the app runs on your own computer.
+IS_CLOUD = os.path.exists("/mount/src") or os.environ.get("IS_CLOUD") == "1"
+modes = [M_UPLOAD, M_BROWSER] if IS_CLOUD else [M_UPLOAD, M_BROWSER, M_PC]
+mode = st.sidebar.radio("Choose input", modes)
+if IS_CLOUD:
+    st.sidebar.caption("Camera mode uses your own device's camera through the browser. "
+                       "Allow camera permission when the browser asks.")
 st.sidebar.info("For continuous real-time webcam tracking, run `live_webcam.py` "
                 "(see README).\n\n**On a phone:** choose 'Upload an image' and tap "
                 "'Take photo' / 'Camera' in the file picker.")
