@@ -4,3 +4,5 @@ tf-keras
 opencv-python
 flask
 werkzeug
+libgl1
+libglib2.0-0
