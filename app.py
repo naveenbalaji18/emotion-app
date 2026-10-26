@@ -5,47 +5,14 @@ Web interface (Streamlit) - image upload or camera snapshot.
 Pipeline:  Input image -> Face detection (OpenCV) -> Face cropping/preprocessing
            -> CNN emotion model (pre-trained, via DeepFace) -> Label drawn on image
 """
-import os
 import sys
-import threading
 import time
 
-# --- Streamlit Cloud safeguard -------------------------------------------------
-# The normal OpenCV needs the system library libGL, which the cloud server may
-# not have. If loading fails for that reason, switch to the "headless" OpenCV.
-try:
-    import cv2
-except ImportError as _e:
-    if "libGL" not in str(_e):
-        raise
-    import shutil
-    import subprocess
-    if shutil.which("uv"):
-        subprocess.run(["uv", "pip", "uninstall", "--python", sys.executable,
-                        "opencv-python", "opencv-contrib-python"], check=False)
-        subprocess.run(["uv", "pip", "install", "--python", sys.executable, "--no-deps",
-                        "opencv-python-headless"], check=False)
-    else:
-        subprocess.run([sys.executable, "-m", "pip", "uninstall", "-y",
-                        "opencv-python", "opencv-contrib-python"], check=False)
-        subprocess.run([sys.executable, "-m", "pip", "install", "--no-deps",
-                        "opencv-python-headless"], check=False)
-    for _m in [m for m in sys.modules if m == "cv2" or m.startswith("cv2.")]:
-        del sys.modules[_m]
-    import cv2
-# -------------------------------------------------------------------------------
+import cv2
 import numpy as np
 import streamlit as st
 from deepface import DeepFace
 from PIL import Image
-
-# Live camera in the browser (lets you pick the camera, incl. a phone camera)
-try:
-    import av
-    from streamlit_webrtc import WebRtcMode, webrtc_streamer
-    HAS_WEBRTC = True
-except Exception:          # library not installed -> that mode is simply hidden
-    HAS_WEBRTC = False
 
 st.set_page_config(page_title="Facial Emotion Recognition", page_icon="🙂", layout="wide")
 
@@ -143,34 +110,6 @@ def draw(bgr_image, results):
     return out
 
 
-@st.cache_resource
-def get_live():
-    """Shared state + one background thread that analyses the newest camera frame."""
-    S = {"lock": threading.Lock(), "small": None, "scale": 1.0, "full": None, "results": []}
-
-    def worker():
-        while True:
-            with S["lock"]:
-                small = None if S["small"] is None else S["small"].copy()
-                scale = S["scale"]
-            if small is None:
-                time.sleep(0.1)
-                continue
-            try:
-                res = analyse(small)
-                for r in res:                       # map boxes back to full size
-                    r["region"] = {k: int(v * scale) for k, v in r["region"].items()
-                                   if isinstance(v, (int, float))}
-            except Exception:
-                res = []
-            with S["lock"]:
-                S["results"] = res
-            time.sleep(0.05)
-
-    threading.Thread(target=worker, daemon=True).start()
-    return S
-
-
 def load(file):
     img = Image.open(file).convert("RGB")
     img.thumbnail((1000, 1000))          # keep it fast
@@ -223,16 +162,8 @@ st.caption("Mini Project – detects faces and predicts one of 7 emotions: "
 
 M_UPLOAD = "Upload an image"
 M_BROWSER = "Take a photo (browser camera)"
-M_LIVE = "Live camera (choose camera)"
 M_PC = "Take a photo (choose PC camera)"
-# On Streamlit Community Cloud the app runs on a remote server that has no camera,
-# so the "PC camera" mode can only be offered when the app runs on your own computer.
-IS_CLOUD = os.path.exists("/mount/src") or os.environ.get("IS_CLOUD") == "1"
-modes = [M_UPLOAD, M_BROWSER] + ([M_LIVE] if HAS_WEBRTC else []) + ([] if IS_CLOUD else [M_PC])
-mode = st.sidebar.radio("Choose input", modes)
-if IS_CLOUD:
-    st.sidebar.caption("Camera mode uses your own device's camera through the browser. "
-                       "Allow camera permission when the browser asks.")
+mode = st.sidebar.radio("Choose input", [M_UPLOAD, M_BROWSER, M_PC])
 st.sidebar.info("For continuous real-time webcam tracking, run `live_webcam.py` "
                 "(see README).\n\n**On a phone:** choose 'Upload an image' and tap "
                 "'Take photo' / 'Camera' in the file picker.")
@@ -266,40 +197,6 @@ elif mode == M_BROWSER:
     file = st.camera_input("Look at the camera and click 'Take photo'")
     if file is not None:
         bgr = load(file)
-elif mode == M_LIVE:
-    S = get_live()
-
-    def video_cb(frame):
-        img = frame.to_ndarray(format="bgr24")
-        h, w = img.shape[:2]
-        sc = max(1.0, w / 640)
-        small = cv2.resize(img, (int(w / sc), int(h / sc))) if sc > 1 else img
-        with S["lock"]:
-            S["full"], S["small"], S["scale"] = img, small, sc
-            res = list(S["results"])
-        if res:
-            img = draw(img, res)
-        return av.VideoFrame.from_ndarray(img, format="bgr24")
-
-    webrtc_streamer(
-        key="live-cam",
-        mode=WebRtcMode.SENDRECV,
-        rtc_configuration={"iceServers": [{"urls": ["stun:stun.l.google.com:19302"]}]},
-        media_stream_constraints={"video": {"width": {"ideal": 1280}, "height": {"ideal": 720}},
-                                  "audio": False},
-        video_frame_callback=video_cb,
-        async_processing=True,
-    )
-    st.caption("Press START and allow the camera. Use **Select device** to choose a camera "
-               "(for example your phone camera, or a particular back lens).")
-    if st.button("📸 Take snapshot"):
-        with S["lock"]:
-            f = None if S["full"] is None else S["full"].copy()
-        if f is None:
-            st.warning("Start the camera first, then take a snapshot.")
-        else:
-            st.session_state["shot_live"] = f
-    bgr = st.session_state.get("shot_live")
 else:
     cams = st.session_state.get("cams", [0, 1, 2, 3])
     c1, c2, c3 = st.columns([2, 1, 1])
@@ -341,8 +238,6 @@ elif mode == M_UPLOAD:
     st.info("Upload an image to begin.")
 elif mode == M_BROWSER:
     st.info("Take a photo to begin.")
-elif mode == M_LIVE:
-    st.info("Start the camera above; faces are labelled live. Click 'Take snapshot' for a detailed result.")
 else:
     st.info("Choose a camera and click 'Take photo' to begin.")
 
