@@ -116,16 +116,42 @@ def load(file):
     return cv2.cvtColor(np.array(img), cv2.COLOR_RGB2BGR)
 
 
-CAM_BACKEND = cv2.CAP_DSHOW if sys.platform.startswith("win") else cv2.CAP_ANY
+# Camera backend:
+# Windows -> DirectShow
+# Linux -> V4L2 (the native Linux webcam backend)
+# Other systems -> OpenCV default backend
+if sys.platform.startswith("win"):
+    CAM_BACKENDS = [cv2.CAP_DSHOW]
+elif sys.platform.startswith("linux"):
+    CAM_BACKENDS = [cv2.CAP_V4L2, cv2.CAP_ANY]
+else:
+    CAM_BACKENDS = [cv2.CAP_ANY]
+
+
+def _open_camera(index):
+    """Open the requested physical camera without changing camera selection."""
+    for backend in CAM_BACKENDS:
+        cap = None
+        try:
+            cap = cv2.VideoCapture(index, backend)
+            if cap.isOpened():
+                return cap
+            if cap is not None:
+                cap.release()
+        except cv2.error:
+            if cap is not None:
+                cap.release()
+    return None
 
 
 def grab_frame(index):
-    """Take one picture from camera number `index` (None if it cannot be used)."""
+    """Take one picture from the selected camera."""
     cap = None
     try:
-        cap = cv2.VideoCapture(index, CAM_BACKEND)
-        if not cap.isOpened():
+        cap = _open_camera(index)
+        if cap is None:
             return None
+
         frame = None
         for _ in range(10):          # skip a few frames so brightness settles
             ok, f = cap.read()
@@ -140,19 +166,15 @@ def grab_frame(index):
 
 
 def detect_cameras(max_index=5):
-    """Return the list of camera numbers that open on this computer."""
+    """Return all camera numbers that can actually be opened."""
     found = []
     for i in range(max_index):
-        cap = None
-        try:
-            cap = cv2.VideoCapture(i, CAM_BACKEND)
-            if cap.isOpened():
-                found.append(i)
-        except cv2.error:
-            pass
-        finally:
-            if cap is not None:
-                cap.release()
+        cap = _open_camera(i)
+        if cap is not None:
+            found.append(i)
+            cap.release()
+
+    # Keep the original fallback so the existing UI/behaviour is unchanged.
     return found or [0]
 
 
@@ -246,8 +268,8 @@ if mode == M_PC and st.session_state.get("live"):
     idx = st.session_state.get("cam_sel", 0)
     cap = None
     try:
-        cap = cv2.VideoCapture(idx, CAM_BACKEND)
-        if not cap.isOpened():
+        cap = _open_camera(idx)
+        if cap is None:
             view.error("This camera could not be opened. Choose another camera number.")
         else:
             while True:
