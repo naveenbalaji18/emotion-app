@@ -9,7 +9,30 @@ import os
 import sys
 import time
 
-import cv2
+# --- Streamlit Cloud safeguard -------------------------------------------------
+# The normal OpenCV needs the system library libGL, which the cloud server may
+# not have. If loading fails for that reason, switch to the "headless" OpenCV.
+try:
+    import cv2
+except ImportError as _e:
+    if "libGL" not in str(_e):
+        raise
+    import shutil
+    import subprocess
+    if shutil.which("uv"):
+        subprocess.run(["uv", "pip", "uninstall", "--python", sys.executable,
+                        "opencv-python", "opencv-contrib-python"], check=False)
+        subprocess.run(["uv", "pip", "install", "--python", sys.executable, "--no-deps",
+                        "opencv-python-headless"], check=False)
+    else:
+        subprocess.run([sys.executable, "-m", "pip", "uninstall", "-y",
+                        "opencv-python", "opencv-contrib-python"], check=False)
+        subprocess.run([sys.executable, "-m", "pip", "install", "--no-deps",
+                        "opencv-python-headless"], check=False)
+    for _m in [m for m in sys.modules if m == "cv2" or m.startswith("cv2.")]:
+        del sys.modules[_m]
+    import cv2
+# -------------------------------------------------------------------------------
 import numpy as np
 import streamlit as st
 from deepface import DeepFace
